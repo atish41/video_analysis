@@ -7,7 +7,7 @@ load_dotenv()
 
 
 def location(latitude,longitue):
-    url = os.getenv("places_api")
+    url = "https://places.googleapis.com/v1/places:searchNearby"
 
     payload = {
         "maxResultCount": 5,
@@ -21,7 +21,7 @@ def location(latitude,longitue):
     }
     headers = {
         "Content-Type": "application/json",
-        "X-Goog-Api-Key": "AIzaSyAOUDmp4iNuX0KE_L2kuR0mHcNWWu3wxjE",
+        "X-Goog-Api-Key": os.getenv("X-Goog-Api-Key"),
         "X-Goog-FieldMask": "places.displayName"
     }
 
