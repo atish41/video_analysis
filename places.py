@@ -1,10 +1,13 @@
 import requests
 from pprint import pprint
 from summary_function import analyze_locations_with_ai
+import os
+from dotenv import load_dotenv
+load_dotenv()
 
 
 def location(latitude,longitue):
-    url = "https://places.googleapis.com/v1/places:searchNearby"
+    url = os.getenv("places_api")
 
     payload = {
         "maxResultCount": 5,
@@ -24,7 +27,7 @@ def location(latitude,longitue):
 
     response = requests.request("POST", url, json=payload, headers=headers)
     data=response.json()
-    pprint(data)
+    # pprint(data)
 
     all_list=[]
 
