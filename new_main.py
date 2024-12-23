@@ -10,11 +10,8 @@ import numpy as np
 import vertexai
 from vertexai.generative_models import GenerativeModel, Part
 import re
-from pathlib import Path
 from urllib.parse import urlparse
 from dotenv import load_dotenv
-# from summary_function import analyze_locations_with_ai
-from places import location
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, 
@@ -61,27 +58,11 @@ system_instruction = """
 You are Paddi, a friendly travel companion who loves exploring and sharing visual stories. When analyzing multiple pieces of media, weave them together into a single, engaging narrative. Use a warm, conversational tone that makes the viewer feel like they're hearing an exciting travel story from a close friend. 
 
 Your goal is to:
-- Describe both the video and image like(places,food, activity) in a seamless, interconnected way
+- Describe both the video and image in a seamless, interconnected way
 - Use natural, enthusiastic language
 - Highlight interesting details from both pieces of media
 - Create a narrative that makes the viewer feel like they're right there with you
 - Be descriptive, personal, and spark curiosity about the scenes you're describing
-"""
-
-system_instruction=f"""
-
-You are Paddi, a travel companion who is fun, light, engaging, and slightly sarcastic. Your task is to analyze media (video or image) and recognize the subject in it—whether it's a place, food, activity, or iconic landmark.
-
-If the media is of a place: Describe the place like you're chatting with a friend. Share interesting facts, nearby spots to explore, and unique travel tips. If you're unsure, make your best guess with some flair.
-
-If the media is of food: Identify the dish (if possible) and talk about its origin, how it's made, fun facts about it, and where to find the best versions of it. Add a quirky tip about enjoying it, like the perfect drink pairing or a fun cultural eating habit.
-
-If the media is of an activity: Explain what the activity is, where it’s usually done, why it’s worth trying, and give an insider tip or hack for enjoying it to the fullest. Throw in some humor about the potential adventure (or mishaps).
-
-If the media is of a famous landmark or something iconic: Recognize it if you can, share fun facts about its history or significance, suggest nearby things to do, and include a playful travel tip like the best photo spots or the quietest time to visit.
-
-Keep your tone conversational, like you're chatting with a travel buddy, and don’t shy away from adding a little sarcastic charm! 
--use this info as well for suggestion {}
 """
 
 generation_config = {
@@ -90,7 +71,7 @@ generation_config = {
     "top_p": 0.95,
 }
 
-
+model = GenerativeModel(model_name="gemini-1.5-flash-001", system_instruction=[system_instruction])
 
 def fetch_and_preprocess_image(image_path):
     """
@@ -101,7 +82,7 @@ def fetch_and_preprocess_image(image_path):
     
     Returns:
         tuple: Processed image part for Vertex AI and original image
-    """ 
+    """
     headers = {
         "User-Agent": "Python Media Fetcher",
     }
@@ -219,7 +200,7 @@ def fetch_and_preprocess_video(video_path):
         if temp_file_path and temp_file_path != video_path and os.path.exists(temp_file_path):
             os.remove(temp_file_path)
 
-def analyze_media(media_type, media_url,city, text_msg=""):
+def analyze_media(media_type, media_url, text_msg=""):
     """
     Analyze media content using Vertex AI
     
@@ -233,7 +214,6 @@ def analyze_media(media_type, media_url,city, text_msg=""):
     """
     # Prepare content with optional text message
     contents = [Part.from_text(text_msg)] if text_msg else [Part.from_text("No additional context")]
-    model = GenerativeModel(model_name="gemini-1.5-flash-001", system_instruction=[system_instruction.format(city)])
 
     try:
         if media_type == 'video':
@@ -288,7 +268,6 @@ def analyze():
     Endpoint for media analysis
     """
     data = request.get_json()
-
     
     # Enhanced logging for debugging
     logging.info(f"Received request data: {data}")
@@ -313,8 +292,6 @@ def analyze():
     media_url=data.get('video')or data.get('image')
     media_type='video' if 'video' in data else 'image'
     text_msg=data.get('text_msg','')
-    city=data.get('city',"Sorry city not provided, you have to make your own guess")
-    
 
     #additional image analysis if both are provided
     additional_image=data.get('image') if media_type=='video'else None
@@ -341,22 +318,16 @@ def analyze():
     
 
     # URL validation
-
-
     def validate_url(url):
         try:
             result = urlparse(url)
-            # If URL has scheme and netloc, it's a valid URL
-            if result.scheme and result.netloc:
-                return
-            # If it's a local file path, check if it exists
-            if Path(url).exists():
-                return
-            logging.error(f"Invalid URL or file path: {url}")
-            raise ValueError("Invalid media URL or file path")
+            if not all([result.scheme, result.netloc]):
+                logging.error(f"Invalid URL: {url}")
+                raise ValueError("Invalid media URL")
         except Exception as e:
-            logging.error(f"URL or file path parsing error: {e}")
+            logging.error(f"URL parsing error: {e}")
             raise
+    
    
 
     try:
@@ -367,7 +338,7 @@ def analyze():
             validate_url(additional_image)
 
         #Analyze primary media(video or image)
-        primary_analysis=analyze_media(media_type,media_url,city,text_msg)
+        primary_analysis=analyze_media(media_type,media_url,text_msg)
 
         #if additional image is provided during video analysis, analyze it too
         additional_image_analysis =None

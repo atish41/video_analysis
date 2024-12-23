@@ -13,7 +13,6 @@ import re
 from pathlib import Path
 from urllib.parse import urlparse
 from dotenv import load_dotenv
-# from summary_function import analyze_locations_with_ai
 from places import location
 
 # Configure logging
@@ -29,59 +28,34 @@ vertexai.init(
     location=os.getenv('VERTEX_LOCATION')
 )
 
-# system_instruction = """
-# You are Paddi AI, an AI travel assistant. 
-# When presented with an image or video, you will:
-# 1. Analyze the visual content thoroughly
-# 2. Provide a detailed, descriptive analysis of what you observe
-# 3. If a text message is provided along with the media, incorporate that context into your analysis
-# 4. Answer any specific questions about the media if they are present
-# 5. Focus on details relevant to travel, destinations, cultural insights, or interesting visual elements
-# 6. Make a description like you are first person and response would be like I see you are standing in front of paris tower, it was made in 1932 by ....like this
-
-# Your response should be clear, comprehensive, and informative, highlighting the most notable aspects of the image or video.
-# """
-
-#
-
-# system_instruction = """
-# You are Paddi, a friendly and enthusiastic travel companion who loves exploring and sharing stories about visual experiences. When you analyze an image or video, imagine you're telling a friend about what you're seeing. Use a warm, engaging tone, and describe the details as if you're recounting an exciting discovery.
-
-# Your goal is to:
-# - Capture the essence of the visual content
-# - Share interesting details that would spark curiosity
-# - Use natural, conversational language
-# - Highlight unique or surprising elements
-# - Connect the visual content to potential travel or cultural insights
-
-# Speak directly to the viewer, as if you're sharing an exciting story over coffee. Be descriptive, but keep it light, personal, and engaging.
-# """
-
-system_instruction = """
-You are Paddi, a friendly travel companion who loves exploring and sharing visual stories. When analyzing multiple pieces of media, weave them together into a single, engaging narrative. Use a warm, conversational tone that makes the viewer feel like they're hearing an exciting travel story from a close friend. 
-
-Your goal is to:
-- Describe both the video and image like(places,food, activity) in a seamless, interconnected way
-- Use natural, enthusiastic language
-- Highlight interesting details from both pieces of media
-- Create a narrative that makes the viewer feel like they're right there with you
-- Be descriptive, personal, and spark curiosity about the scenes you're describing
-"""
-
-system_instruction=f"""
-
+base_system_instruction = """
 You are Paddi, a travel companion who is fun, light, engaging, and slightly sarcastic. Your task is to analyze media (video or image) and recognize the subject in it—whether it's a place, food, activity, or iconic landmark.
 
 If the media is of a place: Describe the place like you're chatting with a friend. Share interesting facts, nearby spots to explore, and unique travel tips. If you're unsure, make your best guess with some flair.
 
 If the media is of food: Identify the dish (if possible) and talk about its origin, how it's made, fun facts about it, and where to find the best versions of it. Add a quirky tip about enjoying it, like the perfect drink pairing or a fun cultural eating habit.
 
-If the media is of an activity: Explain what the activity is, where it’s usually done, why it’s worth trying, and give an insider tip or hack for enjoying it to the fullest. Throw in some humor about the potential adventure (or mishaps).
+If the media is of an activity: Explain what the activity is, where it's usually done, why it's worth trying, and give an insider tip or hack for enjoying it to the fullest. Throw in some humor about the potential adventure (or mishaps).
 
 If the media is of a famous landmark or something iconic: Recognize it if you can, share fun facts about its history or significance, suggest nearby things to do, and include a playful travel tip like the best photo spots or the quietest time to visit.
 
-Keep your tone conversational, like you're chatting with a travel buddy, and don’t shy away from adding a little sarcastic charm! 
--use this info as well for suggestion {}
+Keep your tone conversational, like you're chatting with a travel buddy, and don't shy away from adding a little sarcastic charm!
+"""
+
+location_system_instruction = f"""
+You are Paddi, a travel companion who is fun, light, engaging, and slightly sarcastic. Your task is to analyze media (video or image) and recognize the subject in it—whether it's a place, food, activity, or iconic landmark.
+
+Consider this location context while describing: 
+
+If the media is of a place: Describe the place like you're chatting with a friend. Use the location information to provide specific details about the area, nearby attractions, and local context. Share interesting facts, nearby spots to explore, and unique travel tips. If you're unsure, make your best guess with some flair.
+
+If the media is of food: Identify the dish (if possible) and talk about its origin, how it's made, fun facts about it, and where to find the best versions of it in this specific location. Add a quirky tip about enjoying it, like the perfect drink pairing or a local cultural eating habit.
+
+If the media is of an activity: Explain what the activity is, how it relates to this specific location, why it's worth trying here, and give an insider tip or hack for enjoying it to the fullest. Throw in some humor about the potential adventure (or mishaps).
+
+If the media is of a famous landmark or something iconic: Recognize it if you can, share fun facts about its history or significance, suggest nearby things to do based on the location information, and include a playful travel tip like the best photo spots or the quietest time to visit.
+
+Keep your tone conversational, like you're chatting with a travel buddy, and don't shy away from adding a little sarcastic charm!
 """
 
 generation_config = {
@@ -90,7 +64,7 @@ generation_config = {
     "top_p": 0.95,
 }
 
-
+# [Previous helper functions remain the same...]
 
 def fetch_and_preprocess_image(image_path):
     """
@@ -219,31 +193,49 @@ def fetch_and_preprocess_video(video_path):
         if temp_file_path and temp_file_path != video_path and os.path.exists(temp_file_path):
             os.remove(temp_file_path)
 
-def analyze_media(media_type, media_url,city, text_msg=""):
+
+def analyze_media(media_type, media_url, city="", lat=None, lon=None, text_msg=""):
     """
     Analyze media content using Vertex AI
     
     Args:
         media_type (str): Type of media ('video' or 'image')
         media_url (str): URL of the media
+        city (str): City name
+        lat (float): Latitude
+        lon (float): Longitude
         text_msg (str, optional): Additional text message. Defaults to "".
         
     Returns:
         dict: Analysis details including description and image details
     """
+    # Get location summary and set appropriate system instruction
+    if lat is not None and lon is not None:
+        try:
+            location_summary = location(lat, lon)
+            system_prompt = location_system_instruction.format(
+                location_summary=location_summary
+            )
+        except Exception as e:
+            logging.warning(f"Failed to get location summary: {e}")
+            system_prompt = base_system_instruction
+    else:
+        system_prompt = base_system_instruction
+    
     # Prepare content with optional text message
     contents = [Part.from_text(text_msg)] if text_msg else [Part.from_text("No additional context")]
-    model = GenerativeModel(model_name="gemini-1.5-flash-001", system_instruction=[system_instruction.format(city)])
+    model = GenerativeModel(
+        model_name="gemini-1.5-flash-001", 
+        system_instruction=[system_prompt]
+    )
 
     try:
         if media_type == 'video':
-            # For video, take the first frame or all frames
             video_frames, first_frame = fetch_and_preprocess_video(media_url)
-            content = contents + [video_frames[0]]  # Prioritize the first frame
+            content = contents + [video_frames[0]]
             
             response = model.generate_content(content, generation_config=generation_config)
             
-            # Use tempfile to create a temporary file
             with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp_file:
                 first_frame.save(temp_file.name)
                 first_frame_path = temp_file.name
@@ -260,7 +252,6 @@ def analyze_media(media_type, media_url,city, text_msg=""):
             
             response = model.generate_content(content, generation_config=generation_config)
             
-            # Use tempfile to create a temporary file
             with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp_file:
                 original_image.save(temp_file.name)
                 image_path = temp_file.name
@@ -279,8 +270,7 @@ def analyze_media(media_type, media_url,city, text_msg=""):
         import traceback
         logging.error(traceback.format_exc())
         raise
-
-app = Flask(__name__)
+app=Flask(__name__)
 
 @app.route('/analyze', methods=['POST'])
 def analyze():
@@ -288,68 +278,29 @@ def analyze():
     Endpoint for media analysis
     """
     data = request.get_json()
-
     
-    # Enhanced logging for debugging
     logging.info(f"Received request data: {data}")
     
-    # Validate request structure
-    # if 'type' not in data or 'media' not in data:
-    #     logging.error("Invalid request structure")
-    #     return jsonify({"error": "Invalid request structure. Requires 'type' and 'media'."}), 400
-    
-    #validate request structure
     if 'video' not in data and 'image' not in data:
         logging.error("Invalid request structure")
-        return jsonify({"error":"Request must contain at least 'video'or 'image' "}),400
+        return jsonify({"error":"Request must contain at least 'video' or 'image' "}), 400
     
-
-
-    # media_type = data['type']
-    # media_url = data['media']
-    # text_msg = data.get('text_msg', '')
+    media_url = data.get('video') or data.get('image')
+    media_type = 'video' if 'video' in data else 'image'
+    text_msg = data.get('text_msg', '')
+    city = data.get('city', "")
     
-    #prioritize video analysis
-    media_url=data.get('video')or data.get('image')
-    media_type='video' if 'video' in data else 'image'
-    text_msg=data.get('text_msg','')
-    city=data.get('city',"Sorry city not provided, you have to make your own guess")
+    # Get latitude and longitude from request
+    lat = data.get('latitude')
+    lon = data.get('longitude')
     
-
-    #additional image analysis if both are provided
-    additional_image=data.get('image') if media_type=='video'else None
-
-
-    # More robust URL validation
-    # try:
-    #     result = urlparse(media_url)
-    #     if not all([result.scheme, result.netloc]):
-    #         logging.error(f"Invalid URL: {media_url}")
-    #         return jsonify({"error": "Invalid media URL"}), 400
-        
-    #     #validate additional image URL if exits
-    #     if additional_image:
-    #         result_img=urlparse(additional_image)
-    #         if not all([result_img.scheme,result_img.netloc]):
-    #             logging.error(f"Invalid image URL:{additional_image}")
-    #             return jsonify({"error":"Invalid image URL"}),400
-            
-        
-    # except Exception as e:
-    #     logging.error(f"URL parsing error: {e}")
-    #     return jsonify({"error": "Invalid media URL"}), 400
-    
-
-    # URL validation
-
+    additional_image = data.get('image') if media_type == 'video' else None
 
     def validate_url(url):
         try:
             result = urlparse(url)
-            # If URL has scheme and netloc, it's a valid URL
             if result.scheme and result.netloc:
                 return
-            # If it's a local file path, check if it exists
             if Path(url).exists():
                 return
             logging.error(f"Invalid URL or file path: {url}")
@@ -357,48 +308,36 @@ def analyze():
         except Exception as e:
             logging.error(f"URL or file path parsing error: {e}")
             raise
-   
 
     try:
-
-         # Validate URLs
         validate_url(media_url)
         if additional_image:
             validate_url(additional_image)
 
-        #Analyze primary media(video or image)
-        primary_analysis=analyze_media(media_type,media_url,city,text_msg)
+        primary_analysis = analyze_media(media_type, media_url, city, lat, lon, text_msg)
 
-        #if additional image is provided during video analysis, analyze it too
-        additional_image_analysis =None
+        additional_image_analysis = None
         if additional_image:
             try:
-                additional_image_analysis=analyze_media('image',additional_image)
+                additional_image_analysis = analyze_media('image', additional_image, city, lat, lon)
             except Exception as e:
-                logging.warning(f"Additional image analysis failed:{e}")
+                logging.warning(f"Additional image analysis failed: {e}")
 
-
-        # response_text = f"Hey there! Let me tell you about what I've just seen. "
-        
-        # # Add primary media description
-        # if media_type == 'video':
-        #     response_text += f"I checked out the video, and wow, it's quite something! {primary_analysis['description']} "
-        # else:
-        #     response_text += f"I took a close look at the image, and here's what caught my eye: {primary_analysis['description']} "
-        
-        # # Add additional image description if available
-        # if additional_image_analysis:
-        #     response_text += f"\n\nOh, and there's more! I also spotted an interesting image alongside the {'video' if media_type == 'video' else 'image'}. Here's what I noticed: {additional_image_analysis['description']}"
-        
         if additional_image_analysis:
-            # Use a generative model to combine descriptions
             combined_contents = [
                 Part.from_text(f"Primary media description: {primary_analysis['description']}"),
                 Part.from_text(f"Additional image description: {additional_image_analysis['description']}"),
                 Part.from_text("Create a single, conversational narrative that weaves together the descriptions of both pieces of media. Make it sound like an excited traveler sharing a story with a friend.")
             ]
             
-            # Generate combined description
+            # Use the same system instruction that was used for primary analysis
+            model = GenerativeModel(
+                model_name="gemini-1.5-flash-001", 
+                system_instruction=[location_system_instruction.format(
+                    location_summary=location(lat, lon) if lat and lon else ""
+                ) if lat and lon else base_system_instruction]
+            )
+            
             combined_response = model.generate_content(
                 combined_contents, 
                 generation_config=generation_config
@@ -413,7 +352,6 @@ def analyze():
                 }
             }
         else:
-            # If only one media type, use its original description
             response = {
                 "description": primary_analysis['description'],
                 "media_type": media_type,
@@ -424,51 +362,6 @@ def analyze():
             }
         
         return jsonify(response), 200
-    
-    except Exception as e:
-        logging.error(f"Analysis error: {e}")
-        return jsonify({"error": str(e)}), 500
-
-        
-
-
-
-
-
-        # # combine results
-        # response={
-        #     "primary_media":primary_analysis
-        # }
-
-        response = {
-            "description": response_text.strip(),
-            "media_type": media_type,
-            "media_paths": {
-                "primary": primary_analysis['media_path'],
-                "additional": additional_image_analysis['media_path'] if additional_image_analysis else None
-            }
-        }
-        
-
-        if additional_image_analysis :
-            response["additional_image"]=additional_image_analysis 	
-
-        return jsonify(response),200
-    
-
-    except Exception as e:
-        logging.error(f"Analysis error:{e}")
-        return jsonify({"error":str(e)}),500
-    
-    # Validate media type
-    if media_type not in ['video', 'image']:
-        logging.error(f"Invalid media type: {media_type}")
-        return jsonify({"error": "Media type must be 'video' or 'image'."}), 400
-    
-    try:
-        analysis = analyze_media(media_type, media_url, text_msg)
-        
-        return jsonify(analysis), 200
     
     except Exception as e:
         logging.error(f"Analysis error: {e}")
