@@ -49,32 +49,101 @@ If the media is of a famous landmark or something iconic: Recognize it if you ca
 Keep your tone conversational, like you're chatting with a travel buddy, and don't shy away from adding a little sarcastic charm!
 """
 
-def get_location_prompt(lat, lon):
+
+# def get_location_prompt(city, lat=None, lon=None):
+#     """
+#     Generate a location-aware prompt incorporating both city and coordinates.
+    
+#     Args:
+#         city (str): City name
+#         lat (float, optional): Latitude
+#         lon (float, optional): Longitude
+        
+#     Returns:
+#         str: Location-aware system prompt
+#     """
+#     context_parts = []
+    
+#     # Add city context if provided
+#     if city:
+#         context_parts.append(f"city of {city}")
+    
+#     # Add location info from coordinates if provided
+#     if lat is not None and lon is not None:
+#         try:
+#             location_info = location(lat, lon)
+#             if location_info:
+#                 context_parts.append(location_info)
+#         except Exception as e:
+#             logging.error(f"Error getting location info: {e}")
+    
+#     # If we have any location context, create a location-aware prompt
+#     if context_parts:
+#         location_context = " and ".join(context_parts)
+#         return f"""
+# You are Paddi, analyzing media from the {location_context}.
+
+# Based on this location context and what you see in the media:
+# 1. Describe what you see in a friendly, conversational way
+# 2. Incorporate relevant details about the location, including specific city information and surroundings
+# 3. Share specific tips and recommendations for this area
+# 4. Point out any interesting connections between what's in the media and the location
+# 5. If you see landmarks or activities, relate them to this specific place
+# 6. Include local insights about the city and neighborhood when relevant
+
+# Keep your tone fun and engaging, like you're excitedly telling a friend about this spot!
+# """
+#     return base_system_instruction
+
+
+def get_location_prompt(city, lat=None, lon=None):
     """
-    Generate a location-aware prompt with the location summary.
+    Generate a location-aware prompt incorporating both city and coordinates.
+    
+    Args:
+        city (str): City name
+        lat (float, optional): Latitude
+        lon (float, optional): Longitude
+        
+    Returns:
+        str: Location-aware system prompt
     """
-    try:
-        location_info = location(lat, lon)
-        print(location_info)
-        if location_info:
-            return f"""
-You are Paddi, analyzing media from this location: {location_info}
+    context_parts = []
+    
+    # Add city context if provided
+    if city:
+        context_parts.append(f"city of {city}")
+    
+    # Add location info from coordinates if provided
+    if lat is not None and lon is not None:
+        try:
+            location_info = location(lat, lon)
+            # Handle the case where location_info is a list
+            if isinstance(location_info, list):
+                # Join list items with commas if it's a list
+                location_info = ", ".join(location_info)
+            if location_info:
+                context_parts.append(location_info)
+        except Exception as e:
+            logging.error(f"Error getting location info: {e}")
+    
+    # If we have any location context, create a location-aware prompt
+    if context_parts:
+        location_context = " and ".join(context_parts)
+        return f"""
+You are Paddi, analyzing media from the {location_context}.
 
 Based on this location context and what you see in the media:
 1. Describe what you see in a friendly, conversational way
-2. Incorporate relevant details about the location and surroundings
+2. Incorporate relevant details about the location, including specific city information and surroundings
 3. Share specific tips and recommendations for this area
 4. Point out any interesting connections between what's in the media and the location
 5. If you see landmarks or activities, relate them to this specific place
+6. Include local insights about the city and neighborhood when relevant
 
 Keep your tone fun and engaging, like you're excitedly telling a friend about this spot!
 """
-        return base_system_instruction
-    except Exception as e:
-        logging.error(f"Error getting location info: {e}")
-        return base_system_instruction
-    
-
+    return base_system_instruction
 
 def fetch_and_preprocess_image(image_path):
     """
@@ -204,30 +273,29 @@ def fetch_and_preprocess_video(video_path):
             os.remove(temp_file_path)
 
 
+
 def analyze_media(media_type, media_url, city="", lat=None, lon=None, text_msg=""):
     """
-    Analyze media content using Vertex AI with location context
+    Analyze media content using Vertex AI with location and city context
     """
     try:
-        # Get appropriate system instruction based on location
-        if lat is not None and lon is not None:
-            system_prompt = get_location_prompt(lat, lon)
-        else:
-            system_prompt = base_system_instruction
+        # Get appropriate system instruction based on location and city
+        system_prompt = get_location_prompt(city, lat, lon)
 
         # Initialize model with system prompt
         model = GenerativeModel(
             model_name="gemini-1.5-flash-001",
-            system_instruction=[system_prompt.format(city)]
+            system_instruction=system_prompt
         )
 
-        # Prepare input content
-        if text_msg:
-            contents = [Part.from_text(f"Please analyze this media. Context: {text_msg}")]
-        else:
-            contents = [Part.from_text("Please analyze this media.")]
+        # Prepare input content with location context
+        context_msg = text_msg
+        if city:
+            context_msg = f"Location: {city}. " + context_msg
 
-        # Process media based on type
+        contents = [Part.from_text(f"Please analyze this media. {context_msg}")]
+
+        # Rest of the function remains the same...
         if media_type == 'video':
             video_frames, first_frame = fetch_and_preprocess_video(media_url)
             content = contents + [video_frames[0]]
@@ -322,14 +390,14 @@ def analyze():
             try:
                 additional_analysis = analyze_media('image', additional_image, city, lat, lon)
                 
-                # Combine descriptions
+                # Combine descriptions using the same location context
                 model = GenerativeModel(
                     model_name="gemini-1.5-flash-001",
-                    system_instruction=get_location_prompt(lat, lon) if lat and lon else base_system_instruction
+                    system_instruction=get_location_prompt(city, lat, lon)
                 )
                 
                 combined_contents = [
-                    Part.from_text("Combine these observations into one engaging story:"),
+                    Part.from_text("Combine these observations into one engaging story, incorporating the location context:"),
                     Part.from_text(f"Main content: {primary_analysis['description']}"),
                     Part.from_text(f"Additional content: {additional_analysis['description']}")
                 ]
@@ -358,6 +426,7 @@ def analyze():
     except Exception as e:
         logging.error(f"Analysis error: {e}")
         return jsonify({"error": str(e)}), 500
+    
 
 def validate_url(url):
     """
@@ -372,6 +441,7 @@ def validate_url(url):
         return False
     except Exception:
         return False
+
 
 if __name__ == '__main__':
     app.run(debug=True, port=3400)

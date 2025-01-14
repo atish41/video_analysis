@@ -81,7 +81,7 @@ If the media is of an activity: Explain what the activity is, where it’s usual
 If the media is of a famous landmark or something iconic: Recognize it if you can, share fun facts about its history or significance, suggest nearby things to do, and include a playful travel tip like the best photo spots or the quietest time to visit.
 
 Keep your tone conversational, like you're chatting with a travel buddy, and don’t shy away from adding a little sarcastic charm! 
--use this info as well for suggestion {}
+-use this info as well for suggestion 
 """
 
 generation_config = {
